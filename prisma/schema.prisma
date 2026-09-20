@@ -1,0 +1,1030 @@
+// LiveShift tenant model
+//
+// Isolation rules for every future operational table:
+// - companyId is required (tenant boundary)
+// - locationId is required when the record belongs to a restaurant
+// - queries must always filter by the caller's authorized company/location IDs
+//
+// Access is granted through:
+// - User.platformRole = SUPER_ADMIN (platform-wide)
+// - CompanyMembership (COMPANY_ADMIN for operations, BILLING_ADMIN for billing only)
+// - LocationMembership (location-scoped restaurant roles)
+// BILLING_ADMIN does not inherit restaurant operational access.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PlatformRole {
+  SUPER_ADMIN
+}
+
+enum CompanyRole {
+  COMPANY_ADMIN
+  BILLING_ADMIN
+}
+
+enum LocationRole {
+  GENERAL_MANAGER
+  MANAGER
+  KITCHEN_MANAGER
+  EMPLOYEE
+  VIEW_ONLY
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum EmailTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  passwordHash    String
+  firstName       String
+  lastName        String
+  platformRole    PlatformRole?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  companyMemberships  CompanyMembership[]
+  locationMemberships LocationMembership[]
+  sessions            Session[]
+  emailTokens         EmailToken[]
+  createdMenuStatuses  MenuItemStatus[] @relation("MenuItemStatusCreatedBy")
+  resolvedMenuStatuses MenuItemStatus[] @relation("MenuItemStatusResolvedBy")
+  inventoryAdjustments InventoryAdjustment[]
+  wasteEntries         WasteEntry[]
+  createdTasks         Task[] @relation("TaskCreatedBy")
+  completedTasks       Task[] @relation("TaskCompletedBy")
+  verifiedTasks        Task[] @relation("TaskVerifiedBy")
+  createdManagerLogs   ManagerLog[] @relation("ManagerLogCreatedBy")
+  resolvedManagerLogs  ManagerLog[] @relation("ManagerLogResolvedBy")
+  auditLogs            AuditLog[]
+  subscriptionChanges  SubscriptionChange[]
+  billingInvoices      BillingInvoice[]
+
+  @@index([platformRole])
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locations   Location[]
+  memberships CompanyMembership[]
+  dailyBoards      DailyOperations[]
+  salesGoals       SalesGoal[]
+  menuItems        MenuItem[]
+  menuItemStatuses MenuItemStatus[]
+  eightySixItems   EightySixItem[]
+  inventoryItems       InventoryItem[]
+  inventoryAdjustments InventoryAdjustment[]
+  wasteEntries         WasteEntry[]
+  managerIssues        ManagerIssue[]
+  tasks                Task[]
+  taskTemplates        TaskTemplate[]
+  workingEmployees     WorkingEmployee[]
+  restaurantEmployees  RestaurantEmployee[]
+  staffShifts          StaffShift[]
+  managerLogs          ManagerLog[]
+  integrationConnections   IntegrationConnection[]
+  integrationSyncLogs      IntegrationSyncLog[]
+  integrationExternalRefs  IntegrationExternalRef[]
+  restaurantOrders         RestaurantOrder[]
+  restaurantPayments       RestaurantPayment[]
+  auditLogs                AuditLog[]
+  subscription             CompanySubscription?
+  subscriptionChanges      SubscriptionChange[]
+  billingInvoices          BillingInvoice[]
+}
+
+model Location {
+  id           String   @id @default(cuid())
+  companyId    String
+  name         String
+  slug         String
+  timezone     String   @default("America/New_York")
+  addressLine1 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country            String   @default("US")
+  dashboardRevision  Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  memberships LocationMembership[]
+  dailyBoards      DailyOperations[]
+  salesGoals       SalesGoal[]
+  menuItems        MenuItem[]
+  menuItemStatuses MenuItemStatus[]
+  eightySixItems   EightySixItem[]
+  inventoryItems       InventoryItem[]
+  inventoryAdjustments InventoryAdjustment[]
+  wasteEntries         WasteEntry[]
+  managerIssues        ManagerIssue[]
+  tasks                Task[]
+  taskTemplates        TaskTemplate[]
+  workingEmployees     WorkingEmployee[]
+  restaurantEmployees  RestaurantEmployee[]
+  staffShifts          StaffShift[]
+  managerLogs          ManagerLog[]
+  integrationConnections   IntegrationConnection[]
+  integrationSyncLogs      IntegrationSyncLog[]
+  integrationExternalRefs  IntegrationExternalRef[]
+  restaurantOrders         RestaurantOrder[]
+  restaurantPayments       RestaurantPayment[]
+  auditLogs                AuditLog[]
+
+  @@unique([companyId, slug])
+  @@index([companyId])
+}
+
+model CompanyMembership {
+  id        String           @id @default(cuid())
+  userId    String
+  companyId String
+  role      CompanyRole
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([companyId, status])
+  @@index([userId, status])
+}
+
+model LocationMembership {
+  id         String           @id @default(cuid())
+  userId     String
+  locationId String
+  role       LocationRole
+  status     MembershipStatus @default(ACTIVE)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@index([locationId, status])
+  @@index([userId, status])
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  refreshTokenHash String   @unique
+  expiresAt        DateTime
+  userAgent        String?
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model EmailToken {
+  id        String         @id @default(cuid())
+  userId    String
+  tokenHash String         @unique
+  type      EmailTokenType
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([expiresAt])
+}
+
+enum BoardItemStatus {
+  ACTIVE
+  CLEARED
+}
+
+enum MenuItemAvailability {
+  AVAILABLE
+  LOW_STOCK
+  EIGHTY_SIXED
+}
+
+enum IssueStatus {
+  OPEN
+  RESOLVED
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum RestaurantTaskType {
+  OPENING
+  CLOSING
+  CLEANING
+  PREP
+  MAINTENANCE
+  MANAGER
+  SAFETY
+  OTHER
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TaskDepartment {
+  KITCHEN
+  FRONT_OF_HOUSE
+  BAR
+  MANAGEMENT
+  FACILITIES
+  OTHER
+}
+
+enum SalesGoalPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model DailyOperations {
+  id           String   @id @default(cuid())
+  companyId    String
+  locationId   String
+  businessDate DateTime @db.Date
+  salesAmount  Decimal  @default(0) @db.Decimal(12, 2)
+  salesGoal    Decimal  @default(0) @db.Decimal(12, 2)
+  covers       Int      @default(0)
+  laborCost    Decimal  @default(0) @db.Decimal(12, 2)
+  grossSales   Decimal  @default(0) @db.Decimal(12, 2)
+  netSales     Decimal  @default(0) @db.Decimal(12, 2)
+  foodSales    Decimal  @default(0) @db.Decimal(12, 2)
+  alcoholSales Decimal  @default(0) @db.Decimal(12, 2)
+  otherSales   Decimal  @default(0) @db.Decimal(12, 2)
+  discounts    Decimal  @default(0) @db.Decimal(12, 2)
+  comps        Decimal  @default(0) @db.Decimal(12, 2)
+  voids        Decimal  @default(0) @db.Decimal(12, 2)
+  tax          Decimal  @default(0) @db.Decimal(12, 2)
+  orderCount   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, businessDate])
+  @@index([companyId, locationId])
+}
+
+model SalesGoal {
+  id          String          @id @default(cuid())
+  companyId   String
+  locationId  String
+  period      SalesGoalPeriod
+  periodStart DateTime        @db.Date
+  amount      Decimal         @default(0) @db.Decimal(12, 2)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, period, periodStart])
+  @@index([companyId, locationId, period])
+}
+
+model MenuItem {
+  id         String   @id @default(cuid())
+  companyId  String
+  locationId String
+  name       String
+  category   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location         @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  statuses MenuItemStatus[]
+
+  @@unique([locationId, name])
+  @@index([companyId, locationId, name])
+}
+
+model MenuItemStatus {
+  id                   String               @id @default(cuid())
+  companyId            String
+  locationId           String
+  menuItemId           String
+  status               MenuItemAvailability
+  remainingQuantity    Decimal?             @db.Decimal(12, 2)
+  reason               String?
+  estimatedAvailableAt DateTime?
+  createdById          String
+  createdAt            DateTime             @default(now())
+  resolvedById         String?
+  resolvedAt           DateTime?
+
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  createdBy  User     @relation("MenuItemStatusCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  resolvedBy User?    @relation("MenuItemStatusResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, locationId, status, resolvedAt])
+  @@index([menuItemId, resolvedAt])
+  @@index([locationId, createdAt])
+}
+
+model EightySixItem {
+  id         String          @id @default(cuid())
+  companyId  String
+  locationId String
+  name       String
+  status     BoardItemStatus @default(ACTIVE)
+  createdAt  DateTime        @default(now())
+  clearedAt  DateTime?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, locationId, status])
+}
+
+enum InventoryCategory {
+  MEAT
+  SEAFOOD
+  PRODUCE
+  DAIRY
+  DRY_GOODS
+  ALCOHOL
+  BEVERAGES
+  PAPER_GOODS
+  CLEANING
+  OTHER
+}
+
+enum InventoryAdjustmentType {
+  CREATE
+  COUNT
+  ADJUST
+  IMPORT
+  UPDATE
+  DEACTIVATE
+  ACTIVATE
+}
+
+model InventoryItem {
+  id             String            @id @default(cuid())
+  companyId      String
+  locationId     String
+  name           String
+  category       InventoryCategory @default(OTHER)
+  sku            String?
+  unit           String            @default("ea")
+  quantityOnHand Decimal           @default(0) @map("quantity") @db.Decimal(12, 2)
+  parLevel       Decimal           @default(0) @db.Decimal(12, 2)
+  reorderLevel   Decimal           @default(0) @map("reorderPoint") @db.Decimal(12, 2)
+  unitCost       Decimal           @default(0) @db.Decimal(12, 2)
+  supplier       String?
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  company     Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location    Location               @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  adjustments InventoryAdjustment[]
+  wasteEntries WasteEntry[]
+
+  @@unique([locationId, name])
+  @@index([companyId, locationId, active])
+  @@index([locationId, sku])
+}
+
+model InventoryAdjustment {
+  id              String                   @id @default(cuid())
+  companyId       String
+  locationId      String
+  inventoryItemId String
+  type            InventoryAdjustmentType
+  quantityBefore  Decimal                  @db.Decimal(12, 2)
+  quantityAfter   Decimal                  @db.Decimal(12, 2)
+  quantityDelta   Decimal                  @db.Decimal(12, 2)
+  reason          String?
+  createdById     String
+  createdAt       DateTime                 @default(now())
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location      Location      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  createdBy     User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([companyId, locationId, createdAt])
+  @@index([inventoryItemId, createdAt])
+}
+
+enum WasteReason {
+  SPOILAGE
+  OVERCOOKED
+  INCORRECT_ORDER
+  DROPPED
+  EXPIRED
+  CUSTOMER_RETURN
+  PREP_WASTE
+  EMPLOYEE_MEAL
+  OTHER
+}
+
+enum ServiceShift {
+  BREAKFAST
+  LUNCH
+  DINNER
+  LATE
+}
+
+model WasteEntry {
+  id              String       @id @default(cuid())
+  companyId       String
+  locationId      String
+  inventoryItemId String?
+  businessDate    DateTime     @db.Date
+  itemName        String
+  quantity        Decimal      @default(1) @db.Decimal(12, 2)
+  unit            String       @default("ea")
+  unitCost        Decimal      @default(0) @db.Decimal(12, 2)
+  totalCost       Decimal      @default(0) @db.Decimal(12, 2)
+  reason          WasteReason  @default(OTHER)
+  employeeId      String?
+  shift           ServiceShift @default(DINNER)
+  notes           String?
+  createdAt       DateTime     @default(now())
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location      Location       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  employee      User?          @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, locationId, businessDate])
+  @@index([locationId, reason])
+  @@index([employeeId])
+}
+
+model ManagerIssue {
+  id         String      @id @default(cuid())
+  companyId  String
+  locationId String
+  title      String
+  status     IssueStatus @default(OPEN)
+  createdAt  DateTime    @default(now())
+  resolvedAt DateTime?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, locationId, status])
+}
+
+model Task {
+  id                   String              @id @default(cuid())
+  companyId            String
+  locationId           String
+  title                String
+  description          String?
+  taskType             RestaurantTaskType  @default(OTHER)
+  department           TaskDepartment      @default(OTHER)
+  assignedEmployeeId   String?
+  assignedRole         StaffPosition?
+  dueAt                DateTime?
+  priority             TaskPriority        @default(NORMAL)
+  status               TaskStatus          @default(OPEN)
+  createdById          String?
+  completedById        String?
+  completedAt          DateTime?
+  verifiedById         String?
+  verifiedAt           DateTime?
+  templateId           String?
+  templateRunId        String?
+  businessDate         DateTime?           @db.Date
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @default(now()) @updatedAt
+
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location         Location            @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  assignedEmployee RestaurantEmployee? @relation(fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
+  createdBy        User?               @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  completedBy      User?               @relation("TaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  verifiedBy       User?               @relation("TaskVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  template         TaskTemplate?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, locationId, status])
+  @@index([companyId, locationId, businessDate])
+  @@index([companyId, locationId, taskType])
+}
+
+model TaskTemplate {
+  id          String             @id @default(cuid())
+  companyId   String
+  locationId  String
+  name        String
+  description String?
+  taskType    RestaurantTaskType @default(OTHER)
+  department  TaskDepartment     @default(OTHER)
+  assignedRole StaffPosition?
+  priority    TaskPriority       @default(NORMAL)
+  dueTime     String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  company  Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location           @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  items    TaskTemplateItem[]
+  tasks    Task[]
+
+  @@index([companyId, locationId])
+}
+
+model TaskTemplateItem {
+  id           String         @id @default(cuid())
+  templateId   String
+  title        String
+  description  String?
+  sortOrder    Int            @default(0)
+  assignedRole StaffPosition?
+  priority     TaskPriority   @default(NORMAL)
+
+  template TaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId, sortOrder])
+}
+
+model WorkingEmployee {
+  id           String    @id @default(cuid())
+  companyId    String
+  locationId   String
+  name         String
+  station      String?
+  clockedInAt  DateTime  @default(now())
+  clockedOutAt DateTime?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, locationId, clockedOutAt])
+}
+
+enum StaffPosition {
+  SERVER
+  BARTENDER
+  HOST
+  BUSSER
+  COOK
+  PREP_COOK
+  DISHWASHER
+  KITCHEN_MANAGER
+  MANAGER
+  GENERAL_MANAGER
+}
+
+enum BreakStatus {
+  ON_DUTY
+  ON_BREAK
+}
+
+model RestaurantEmployee {
+  id         String        @id @default(cuid())
+  companyId  String
+  locationId String
+  name       String
+  position   StaffPosition @default(SERVER)
+  hourlyRate Decimal       @default(0) @db.Decimal(12, 2)
+  active     Boolean       @default(true)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  company  Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  shifts   StaffShift[]
+  assignedTasks Task[]
+
+  @@unique([locationId, name])
+  @@index([companyId, locationId, active])
+}
+
+model StaffShift {
+  id             String        @id @default(cuid())
+  companyId      String
+  locationId     String
+  employeeId     String?
+  employee       String
+  position       StaffPosition
+  businessDate   DateTime      @db.Date
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  clockedIn      DateTime?
+  clockedOut     DateTime?
+  callout        Boolean       @default(false)
+  late           Boolean       @default(false)
+  breakStatus    BreakStatus   @default(ON_DUTY)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location         Location            @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  restaurantEmployee RestaurantEmployee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, locationId, businessDate])
+}
+
+enum ManagerLogCategory {
+  STAFFING
+  CUSTOMER_COMPLAINT
+  MAINTENANCE
+  INVENTORY_SHORTAGE
+  VENDOR
+  INCIDENT
+  SHIFT_NOTE
+  CASH
+  GENERAL
+}
+
+enum ManagerLogPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model ManagerLog {
+  id            String              @id @default(cuid())
+  companyId     String
+  locationId    String
+  businessDate  DateTime            @default(now()) @db.Date
+  category      ManagerLogCategory  @default(GENERAL)
+  priority      ManagerLogPriority  @default(NORMAL)
+  description   String              @default("")
+  body          String
+  createdById   String?
+  createdAt     DateTime            @default(now())
+  resolved      Boolean             @default(false)
+  resolvedById  String?
+  resolvedAt    DateTime?
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  createdBy  User?    @relation("ManagerLogCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  resolvedBy User?    @relation("ManagerLogResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, locationId, businessDate])
+  @@index([companyId, locationId, resolved])
+}
+
+enum PosProviderKind {
+  TOAST
+  SQUARE
+  CLOVER
+  MANUAL
+}
+
+enum IntegrationConnectionStatus {
+  DISABLED
+  READY
+  ERROR
+}
+
+enum IntegrationResource {
+  SALES
+  ORDERS
+  EMPLOYEES
+  MENU_ITEMS
+  PAYMENTS
+}
+
+enum IntegrationSyncStatus {
+  STARTED
+  SUCCESS
+  FAILED
+}
+
+enum IntegrationSyncTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+enum RestaurantOrderStatus {
+  OPEN
+  CLOSED
+  VOIDED
+}
+
+enum RestaurantPaymentMethod {
+  CARD
+  CASH
+  GIFT
+  OTHER
+}
+
+enum RestaurantPaymentStatus {
+  APPROVED
+  VOIDED
+  REFUNDED
+}
+
+model IntegrationConnection {
+  id                   String                      @id @default(cuid())
+  companyId            String
+  locationId           String
+  provider             PosProviderKind
+  status               IntegrationConnectionStatus @default(DISABLED)
+  externalLocationId   String?
+  encryptedCredentials String?                     @db.Text
+  credentialFields     String[]                    @default([])
+  lastSyncedAt         DateTime?
+  lastSuccessfulSyncAt DateTime?
+  lastError            String?
+  scheduledEnabled     Boolean                     @default(false)
+  syncIntervalMinutes  Int                         @default(15)
+  nextSyncAt           DateTime?
+  sourceUrl            String?
+  useSampleData        Boolean                     @default(false)
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  company  Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location                @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  logs     IntegrationSyncLog[]
+  refs     IntegrationExternalRef[]
+
+  @@unique([locationId, provider])
+  @@index([companyId, locationId])
+  @@index([scheduledEnabled, nextSyncAt])
+}
+
+model IntegrationSyncLog {
+  id              String                @id @default(cuid())
+  companyId       String
+  locationId      String
+  connectionId    String
+  provider        PosProviderKind
+  resource        IntegrationResource
+  trigger         IntegrationSyncTrigger @default(MANUAL)
+  status          IntegrationSyncStatus
+  startedAt       DateTime              @default(now())
+  finishedAt      DateTime?
+  recordsFetched  Int                   @default(0)
+  recordsImported Int                   @default(0)
+  errorCode       String?
+  errorMessage    String?
+  details         Json?
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location              @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, locationId, startedAt])
+  @@index([connectionId, startedAt])
+}
+
+model IntegrationExternalRef {
+  id           String              @id @default(cuid())
+  companyId    String
+  locationId   String
+  connectionId String
+  resource     IntegrationResource
+  externalId   String
+  internalId   String
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location              @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, resource, externalId])
+  @@index([companyId, locationId, resource])
+  @@index([internalId])
+}
+
+model RestaurantOrder {
+  id           String                @id @default(cuid())
+  companyId    String
+  locationId   String
+  businessDate DateTime              @db.Date
+  openedAt     DateTime?
+  closedAt     DateTime?
+  guestCount   Int                   @default(0)
+  status       RestaurantOrderStatus @default(CLOSED)
+  netTotal     Decimal               @default(0) @db.Decimal(12, 2)
+  tax          Decimal               @default(0) @db.Decimal(12, 2)
+  tip          Decimal               @default(0) @db.Decimal(12, 2)
+  discounts    Decimal               @default(0) @db.Decimal(12, 2)
+  comps        Decimal               @default(0) @db.Decimal(12, 2)
+  foodTotal    Decimal               @default(0) @db.Decimal(12, 2)
+  alcoholTotal Decimal               @default(0) @db.Decimal(12, 2)
+  otherTotal   Decimal               @default(0) @db.Decimal(12, 2)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  company    Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location             @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  payments   RestaurantPayment[]
+
+  @@index([companyId, locationId, businessDate])
+}
+
+model RestaurantPayment {
+  id          String                   @id @default(cuid())
+  companyId   String
+  locationId  String
+  orderId     String?
+  amount      Decimal                  @default(0) @db.Decimal(12, 2)
+  tip         Decimal                  @default(0) @db.Decimal(12, 2)
+  method      RestaurantPaymentMethod  @default(OTHER)
+  status      RestaurantPaymentStatus  @default(APPROVED)
+  processedAt DateTime                 @default(now())
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location          @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  order    RestaurantOrder?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, locationId, processedAt])
+  @@index([orderId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  companyId      String
+  locationId     String
+  userId         String?
+  userName       String
+  userEmail      String?
+  restaurantName String
+  entity         String
+  entityId       String
+  action         String
+  oldValue       Json?
+  newValue       Json?
+  ipAddress      String?
+  sessionId      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, locationId, createdAt])
+  @@index([locationId, entity, entityId])
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum BillingInterval {
+  MONTHLY
+  ANNUAL
+}
+
+enum SubscriptionChangeType {
+  CREATED
+  ACTIVATED
+  UPGRADED
+  DOWNGRADED
+  QUANTITY_CHANGED
+  STATUS_CHANGED
+  CANCELLED
+  REACTIVATED
+}
+
+model BillingPlan {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  features    String[] @default([])
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  prices          BillingPrice[]
+  subscriptions   CompanySubscription[]
+}
+
+model BillingPrice {
+  id                  String          @id @default(cuid())
+  planId              String
+  interval            BillingInterval
+  currency            String          @default("USD")
+  amountPerLocation   Decimal         @db.Decimal(12, 2)
+  active              Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  plan          BillingPlan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+  subscriptions CompanySubscription[]
+
+  @@unique([planId, interval, currency])
+  @@index([planId, active])
+}
+
+model CompanySubscription {
+  id                   String             @id @default(cuid())
+  companyId            String             @unique
+  planId               String
+  priceId              String
+  status               SubscriptionStatus @default(TRIAL)
+  locationQuantity     Int                @default(1)
+  trialEndsAt          DateTime?
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean            @default(false)
+  cancelledAt          DateTime?
+  pastDueAt            DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  company  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan     BillingPlan          @relation(fields: [planId], references: [id], onDelete: Restrict)
+  price    BillingPrice         @relation(fields: [priceId], references: [id], onDelete: Restrict)
+  changes  SubscriptionChange[]
+  invoices BillingInvoice[]
+
+  @@index([status])
+  @@index([planId])
+}
+
+model SubscriptionChange {
+  id             String                 @id @default(cuid())
+  companyId      String
+  subscriptionId String
+  type           SubscriptionChangeType
+  oldValue       Json?
+  newValue       Json?
+  createdById    String?
+  createdAt      DateTime               @default(now())
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subscription CompanySubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  createdBy    User?                @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([subscriptionId, createdAt])
+}
+
+model BillingInvoice {
+  id                  String          @id @default(cuid())
+  companyId           String
+  subscriptionId      String
+  number              String          @unique
+  currency            String
+  amountPerLocation   Decimal         @db.Decimal(12, 2)
+  locationQuantity    Int
+  total               Decimal         @db.Decimal(12, 2)
+  planName            String
+  interval            BillingInterval
+  periodStart         DateTime
+  periodEnd           DateTime
+  sentTo              String[]
+  createdById         String?
+  createdAt           DateTime        @default(now())
+
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subscription CompanySubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  createdBy    User?               @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+}
