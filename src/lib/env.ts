@@ -44,3 +44,11 @@ export function getBillingTrialDays() {
 export function getBillingCurrency() {
   return process.env.BILLING_CURRENCY?.trim().toUpperCase() || "USD";
 }
+
+export function getDemoEmail() {
+  return process.env.DEMO_EMAIL?.trim().toLowerCase() || "demo@liveshift.app";
+}
+
+export function getDemoPassword() {
+  return process.env.DEMO_PASSWORD || "liveshift-demo";
+}

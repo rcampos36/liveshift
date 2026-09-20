@@ -93,6 +93,9 @@ export function HomeLanding({
               </Link>
             ) : (
               <>
+                <Link href="/demo" className="hidden px-3 py-2 text-sm font-medium text-[#fff6ea]/90 hover:text-[#fff6ea] sm:inline">
+                  View demo
+                </Link>
                 <Link href="/login" className="px-3 py-2 text-sm font-medium text-[#fff6ea]/90 hover:text-[#fff6ea]">
                   Sign in
                 </Link>
@@ -146,6 +149,14 @@ export function HomeLanding({
             >
               {secondaryLabel}
             </Link>
+            {!signedIn ? (
+              <Link
+                href="/demo"
+                className="rounded-full border border-[#e8c9a0]/80 bg-[#1c1410]/20 px-5 py-3 text-sm font-semibold text-[#e8c9a0] backdrop-blur-sm hover:bg-[#1c1410]/35"
+              >
+                View client demo
+              </Link>
+            ) : null}
           </div>
         </div>
       </section>

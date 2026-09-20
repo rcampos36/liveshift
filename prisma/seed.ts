@@ -1565,12 +1565,51 @@ async function seedCompanyTrial(companyId: string, createdById?: string) {
   console.log(`Company trial started: ${companyId} (${subscription.locationQuantity} locations)`);
 }
 
+async function seedDemoAccount() {
+  const email = process.env.DEMO_EMAIL?.trim().toLowerCase() || "demo@liveshift.app";
+  const password = process.env.DEMO_PASSWORD || "liveshift-demo";
+  const company = await prisma.company.findUnique({ where: { slug: "citlatli" } });
+  if (!company) {
+    console.log("Skipping demo account. Citlatli is not seeded.");
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await prisma.user.upsert({
+    where: { email },
+    update: {
+      passwordHash,
+      firstName: "Demo",
+      lastName: "Host",
+      platformRole: null,
+      emailVerifiedAt: new Date(),
+    },
+    create: {
+      email,
+      passwordHash,
+      firstName: "Demo",
+      lastName: "Host",
+      platformRole: null,
+      emailVerifiedAt: new Date(),
+    },
+  });
+
+  await prisma.companyMembership.upsert({
+    where: { userId_companyId: { userId: user.id, companyId: company.id } },
+    update: { role: "COMPANY_ADMIN", status: "ACTIVE" },
+    create: { userId: user.id, companyId: company.id, role: "COMPANY_ADMIN", status: "ACTIVE" },
+  });
+
+  console.log(`Client demo ready: ${email} (Citlatli company admin)`);
+}
+
 async function main() {
   const admin = await seedSuperAdmin();
   await seedBillingCatalog();
   await seedCitlatli(admin?.id);
   await seedSisterRestaurants(CITLATLI_COMPANY_ID, admin?.id);
   await seedCompanyTrial(CITLATLI_COMPANY_ID, admin?.id);
+  await seedDemoAccount();
   const barceloId = await seedBarceloGroup(admin?.id);
   await seedCompanyTrial(barceloId, admin?.id);
 }
