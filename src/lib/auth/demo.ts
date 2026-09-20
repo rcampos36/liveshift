@@ -69,14 +69,17 @@ async function ensureDemoCompany() {
     create: { name: "Citlatli", slug: DEMO_COMPANY_SLUG },
   });
 
-  const existing = await prisma.location.count({ where: { companyId: company.id } });
-  if (existing > 0) {
-    return company;
-  }
-
   for (const house of DEMO_HOUSES) {
-    const restaurant = await prisma.location.create({
-      data: {
+    const restaurant = await prisma.location.upsert({
+      where: { companyId_slug: { companyId: company.id, slug: house.slug } },
+      update: {
+        name: house.name,
+        timezone: house.timezone,
+        city: house.city,
+        state: house.state,
+        country: house.country,
+      },
+      create: {
         companyId: company.id,
         name: house.name,
         slug: house.slug,
@@ -87,8 +90,12 @@ async function ensureDemoCompany() {
       },
     });
     const businessDate = businessDateFor(house.timezone);
-    await prisma.dailyOperations.create({
-      data: {
+    await prisma.dailyOperations.upsert({
+      where: {
+        locationId_businessDate: { locationId: restaurant.id, businessDate },
+      },
+      update: {},
+      create: {
         companyId: company.id,
         locationId: restaurant.id,
         businessDate,
