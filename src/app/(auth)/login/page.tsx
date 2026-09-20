@@ -25,9 +25,14 @@ export default async function LoginPage({
         </div>
         {demo === "unavailable" ? (
           <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            The client demo is not loaded on this environment yet. Seed Citlatli, then open /demo again.
+            The client demo could not start. Use demo@liveshift.app and liveshift-demo, or open /demo again.
           </p>
-        ) : null}
+        ) : (
+          <p className="rounded-2xl border border-stone-200 bg-[#faf6ef] px-4 py-3 text-sm text-stone-600">
+            Client demo: <span className="font-medium text-stone-900">demo@liveshift.app</span> /{" "}
+            <span className="font-medium text-stone-900">liveshift-demo</span>
+          </p>
+        )}
         <AuthForm
           action="/api/auth/login"
           submitLabel="Sign in"
