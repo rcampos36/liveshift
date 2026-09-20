@@ -9,7 +9,7 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<{ next?: string }>;
 }) {
-  if (await getCurrentUser()) {
+  if (await getCurrentUser().catch(() => null)) {
     redirect("/dashboard");
   }
 

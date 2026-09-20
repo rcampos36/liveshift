@@ -16,7 +16,7 @@ export default async function RegisterPage({
 }: {
   searchParams: Promise<{ plan?: string; interval?: string }>;
 }) {
-  if (await getCurrentUser()) {
+  if (await getCurrentUser().catch(() => null)) {
     redirect("/dashboard");
   }
 

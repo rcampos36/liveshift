@@ -4,7 +4,10 @@ import { getPublicPricingPlans } from "@/lib/billing/public";
 import { getBillingTrialDays } from "@/lib/env";
 
 export default async function HomePage() {
-  const [user, plans] = await Promise.all([getCurrentUser(), getPublicPricingPlans()]);
+  const [user, plans] = await Promise.all([
+    getCurrentUser().catch(() => null),
+    getPublicPricingPlans(),
+  ]);
 
   return <HomeLanding signedIn={Boolean(user)} plans={plans} trialDays={getBillingTrialDays()} />;
 }
